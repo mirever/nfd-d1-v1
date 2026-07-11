@@ -1,10 +1,7 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
 --
--- NFD - No Fraud / Node Forward Bot
--- Copyright (C) 2024 LloydAsp (original author)
---
--- NFD-D1-V1 - Fork using D1 (SQLite) instead of Workers KV
--- Copyright (C) 2024 mireve (modifications)
+-- NFD-D1-V1
+-- Copyright (C) 2024 mireve
 --
 -- This program is free software: you can redistribute it and/or modify
 -- it under the terms of the GNU General Public License as published by
@@ -18,10 +15,6 @@
 --
 -- You should have received a copy of the GNU General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
---
--- Modifications:
--- - Added fraud_users table for locally cached fraud database
--- - Added managed/fixed schema for all tables
 
 CREATE TABLE IF NOT EXISTS msg_mappings (
   forwarded_msg_id INTEGER PRIMARY KEY,
