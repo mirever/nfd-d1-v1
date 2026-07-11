@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // NFD - No Fraud / Node Forward Bot
-// Copyright (C) 2024 LloydAsp (original author)
+// Copyright (C) 2023 LloydAsp (original author)
 //   https://github.com/LloydAsp/nfd
 //
 // NFD-D1-V1 - Fork using D1 (SQLite) instead of Workers KV
-// Copyright (C) 2024 mireve (modifications)
+// Copyright (C) 2026 mireve (modifications)
 // Modified on 2026-07-11
 //
 // This program is free software: you can redistribute it and/or modify
