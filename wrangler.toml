@@ -1,0 +1,14 @@
+name = "nfd-d1-v1"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "nfd-d1-v1"
+database_id = "your-database-id"
+
+[vars]
+ENV_BOT_TOKEN = "your-bot-token"
+ENV_BOT_SECRET = "your-webhook-secret"
+ENV_ADMIN_UID = "your-admin-user-id"
+ENABLE_NOTIFICATION = "true"
