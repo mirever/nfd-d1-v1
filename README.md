@@ -1,5 +1,8 @@
 # NFD-D1-V1
 
+SPDX-License-Identifier: GPL-3.0-or-later
+Copyright (C) 2024 mireve
+
 基于 Cloudflare Workers + D1 的 Telegram 消息转发机器人。
 
 本仓库是 [NFD](https://github.com/LloydAsp/nfd) 的改版，使用 **D1 (SQLite)** 替代 Workers KV 作为存储后端。
