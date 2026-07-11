@@ -1,20 +1,8 @@
 # NFD-D1-V1
 
-基于 Cloudflare Workers + D1 的 Telegram 消息转发机器人，NFD 的 D1 存储增强版。
+基于 Cloudflare Workers + D1 的 Telegram 消息转发机器人。
 
-## 与 NFD 的区别
-
-| 项目 | NFD | NFD-D1-V1 |
-|------|-----|-----------|
-| 存储 | Workers KV | **D1 (SQLite)** |
-| 读取配额 | 10万/天 | **500万行/天** |
-| 写入配额 | 1,000/天 | **10万行/天** |
-| 存储上限 | 1 GB | **5 GB** |
-| 格式 | Service Worker | **ES Modules** |
-| 错误处理 | 无 | **try/catch 全覆盖** |
-| 出站超时 | 无 | **10s 超时 + AbortController** |
-| 诈骗检测 | 实时远程下载 | **D1 缓存 + 按需同步** |
-| 初始化鉴权 | 无 | **Webhook Secret 鉴权** |
+本仓库是 [NFD](https://github.com/LloydAsp/nfd) 的改版，使用 **D1 (SQLite)** 替代 Workers KV 作为存储后端。
 
 ## 搭建方法
 
