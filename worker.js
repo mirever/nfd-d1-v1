@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2024 mireve
+//
+// NFD - No Fraud / Node Forward Bot
+// Copyright (C) 2024 LloydAsp (original author)
+//   https://github.com/LloydAsp/nfd
+//
+// NFD-D1-V1 - Fork using D1 (SQLite) instead of Workers KV
+// Copyright (C) 2024 mireve (modifications)
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -13,6 +19,18 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
+// Modifications compared to original NFD:
+// - Storage backend changed from Workers KV to D1 (SQLite)
+// - Converted from Service Worker format to ES Modules
+// - Added comprehensive error handling (try/catch on all paths)
+// - Added fetch timeout with AbortController (10s default)
+// - Fraud database cached to D1 instead of fetching on every message
+// - Added /syncFraudDb command for manual fraud DB updates
+// - Changed enable_notification to configurable env variable
+// - Secured /init endpoint with webhook secret
+// - Non-text messages now forwarded correctly
+// - Improved code style (naming, parameter handling)
 
 let TOKEN
 let SECRET

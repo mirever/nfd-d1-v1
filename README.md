@@ -1,7 +1,9 @@
 # NFD-D1-V1
 
 SPDX-License-Identifier: GPL-3.0-or-later
-Copyright (C) 2024 mireve
+
+NFD (original): Copyright (C) 2024 LloydAsp
+NFD-D1-V1 (modifications): Copyright (C) 2024 mireve
 
 基于 Cloudflare Workers + D1 的 Telegram 消息转发机器人。
 
