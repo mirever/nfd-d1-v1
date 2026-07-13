@@ -102,6 +102,20 @@ function telegramForwardMessage(msg){
   return requestTelegram('forwardMessage', makeReqBody(msg))
 }
 
+async function getGuestByReply(message, env) {
+  const row = await env.DB.prepare(
+    'SELECT guest_chat_id FROM msg_mappings WHERE forwarded_msg_id = ?'
+  ).bind(message.reply_to_message.message_id).first()
+  return row?.guest_chat_id ?? null
+}
+
+async function getBlockStatus(chatId, env) {
+  const row = await env.DB.prepare(
+    'SELECT is_blocked FROM blocked_users WHERE chat_id = ?'
+  ).bind(chatId).first()
+  return row?.is_blocked === 1
+}
+
 export default {
   async fetch(request, env, ctx) {
     TOKEN = env.ENV_BOT_TOKEN
@@ -241,11 +255,9 @@ async function onMessage (message, env) {
       if(/^\/checkblock$/.exec(message.text)){
         return checkBlock(message, env)
       }
-      let row
+      let guestChatId
       try {
-        row = await env.DB.prepare(
-          'SELECT guest_chat_id FROM msg_mappings WHERE forwarded_msg_id = ?'
-        ).bind(message.reply_to_message.message_id).first()
+        guestChatId = await getGuestByReply(message, env)
       } catch (error) {
         logError('query msg_mappings', error)
         return sendMessage({
@@ -254,7 +266,7 @@ async function onMessage (message, env) {
         })
       }
 
-      if (!row) {
+      if (!guestChatId) {
         return sendMessage({
           chat_id: ADMIN_UID,
           text: '未找到对应的用户消息映射，可能已过期'
@@ -262,7 +274,7 @@ async function onMessage (message, env) {
       }
 
       return copyMessage({
-        chat_id: row.guest_chat_id,
+        chat_id: guestChatId,
         from_chat_id:message.chat.id,
         message_id:message.message_id,
       })
@@ -282,16 +294,14 @@ async function onMessage (message, env) {
 async function handleGuestMessage(message, env){
   try {
     let chatId = message.chat.id;
-    let row
+    let isBlocked = false
     try {
-      row = await env.DB.prepare(
-        'SELECT is_blocked FROM blocked_users WHERE chat_id = ?'
-      ).bind(chatId.toString()).first()
+      isBlocked = await getBlockStatus(chatId.toString(), env)
     } catch (error) {
       logError('check blocked', error)
     }
 
-    if(row && row.is_blocked === 1){
+    if(isBlocked){
       return sendMessage({
         chat_id: chatId,
         text:'You are blocked'
@@ -393,11 +403,9 @@ async function handleNotify(message, env){
 
 async function handleBlock(message, env){
   try {
-    let row
+    let guestChatId
     try {
-      row = await env.DB.prepare(
-        'SELECT guest_chat_id FROM msg_mappings WHERE forwarded_msg_id = ?'
-      ).bind(message.reply_to_message.message_id).first()
+      guestChatId = await getGuestByReply(message, env)
     } catch (error) {
       logError('handleBlock query', error)
       return sendMessage({
@@ -406,14 +414,12 @@ async function handleBlock(message, env){
       })
     }
 
-    if(!row){
+    if(!guestChatId){
       return sendMessage({
         chat_id: ADMIN_UID,
         text:'未找到消息映射'
       })
     }
-
-    let guestChatId = row.guest_chat_id
 
     if(guestChatId === ADMIN_UID){
       return sendMessage({
@@ -441,11 +447,9 @@ async function handleBlock(message, env){
 
 async function handleUnBlock(message, env){
   try {
-    let row
+    let guestChatId
     try {
-      row = await env.DB.prepare(
-        'SELECT guest_chat_id FROM msg_mappings WHERE forwarded_msg_id = ?'
-      ).bind(message.reply_to_message.message_id).first()
+      guestChatId = await getGuestByReply(message, env)
     } catch (error) {
       logError('handleUnBlock query', error)
       return sendMessage({
@@ -454,14 +458,12 @@ async function handleUnBlock(message, env){
       })
     }
 
-    if(!row){
+    if(!guestChatId){
       return sendMessage({
         chat_id: ADMIN_UID,
         text:'未找到消息映射'
       })
     }
-
-    let guestChatId = row.guest_chat_id
 
     await env.DB.prepare(
       'INSERT OR REPLACE INTO blocked_users (chat_id, is_blocked) VALUES (?, 0)'
@@ -482,11 +484,9 @@ async function handleUnBlock(message, env){
 
 async function checkBlock(message, env){
   try {
-    let row
+    let guestChatId
     try {
-      row = await env.DB.prepare(
-        'SELECT guest_chat_id FROM msg_mappings WHERE forwarded_msg_id = ?'
-      ).bind(message.reply_to_message.message_id).first()
+      guestChatId = await getGuestByReply(message, env)
     } catch (error) {
       logError('checkBlock query', error)
       return sendMessage({
@@ -495,19 +495,16 @@ async function checkBlock(message, env){
       })
     }
 
-    if(!row){
+    if(!guestChatId){
       return sendMessage({
         chat_id: ADMIN_UID,
         text:'未找到消息映射'
       })
     }
 
-    let guestChatId = row.guest_chat_id
-    let blockedRow
+    let isBlocked
     try {
-      blockedRow = await env.DB.prepare(
-        'SELECT is_blocked FROM blocked_users WHERE chat_id = ?'
-      ).bind(guestChatId).first()
+      isBlocked = await getBlockStatus(guestChatId, env)
     } catch (error) {
       logError('checkBlock query blocked', error)
       return sendMessage({
@@ -518,7 +515,7 @@ async function checkBlock(message, env){
 
     return sendMessage({
       chat_id: ADMIN_UID,
-      text: `UID:${guestChatId}` + (blockedRow?.is_blocked === 1 ? '被屏蔽' : '没有被屏蔽')
+      text: `UID:${guestChatId}` + (isBlocked ? '被屏蔽' : '没有被屏蔽')
     })
   } catch (error) {
     logError('checkBlock', error)
