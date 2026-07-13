@@ -14,7 +14,7 @@ Single-context layout — one CONTEXT.md + docs/adr/ at repo root. See `docs/age
 
 ### Changelog convention
 
-Every change (per Git commit) gets a summary record in `docs/changelog/YYYY-MM-DD-<short-hash>.md` and an index entry in `docs/agents/changelog-index.md`. See `docs/agents/changelog-index.md`.
+Every change (per Git commit) gets a summary record in `docs/changelog/YYYY-MM-DD-<NN>.md` (sequential per day) and an index entry in `docs/agents/changelog-index.md`. Create the file **before** the commit and reference it in the commit message: `[changelog:YYYY-MM-DD-NN]`. See `docs/agents/changelog-index.md`.
 
 ### Commit convention
 
