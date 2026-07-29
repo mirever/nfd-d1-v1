@@ -3,3 +3,4 @@ dist/
 .dev.vars
 AGENTS.md
 docs/
+.scratch/
