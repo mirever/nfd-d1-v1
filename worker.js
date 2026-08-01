@@ -53,6 +53,10 @@ function logError(context, error) {
   console.error(`[NFD-D1] ${context}:`, error?.message || error)
 }
 
+function logInfo(context, message) {
+  console.log(`[NFD-D1] ${context}:`, message)
+}
+
 async function fetchWithTimeout(url, options, timeout = 10000){
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeout)
@@ -71,8 +75,20 @@ function apiUrl (methodName, params = null) {
   return `https://api.telegram.org/bot${TOKEN}/${methodName}${query}`
 }
 
-function isAuthorized (url) {
-  return url.searchParams.get('secret') === SECRET
+function isAuthorized (url, env) {
+  return url.searchParams.get('secret') === env.ENV_BOT_SECRET
+}
+
+function classifyAdminCommand(text) {
+  if (/^\/syncFraudDb$/.exec(text)) return 'syncFraudDb'
+  if (/^\/block$/.exec(text)) return 'block'
+  if (/^\/unblock$/.exec(text)) return 'unblock'
+  if (/^\/checkblock$/.exec(text)) return 'checkblock'
+  return null
+}
+
+function parseFraudIds(text) {
+  return text.split(/\r?\n/).map(v => v.trim()).filter(v => v)
 }
 
 async function requestTelegram(methodName, body, params = null){
@@ -126,6 +142,30 @@ async function getGuestByReply(message, env) {
   return row?.guest_chat_id ?? null
 }
 
+async function resolveGuestByReply(message, env) {
+  let guestChatId
+  try {
+    guestChatId = await getGuestByReply(message, env)
+  } catch (error) {
+    logError('resolveGuestByReply query', error)
+    await sendMessage({
+      chat_id: ADMIN_UID,
+      text: '数据库查询失败，请稍后重试'
+    })
+    return null
+  }
+
+  if (!guestChatId) {
+    await sendMessage({
+      chat_id: ADMIN_UID,
+      text: '未找到对应的用户消息映射，可能已过期'
+    })
+    return null
+  }
+
+  return guestChatId
+}
+
 async function getBlockStatus(chatId, env) {
   const row = await env.DB.prepare(
     'SELECT is_blocked FROM blocked_users WHERE chat_id = ?'
@@ -144,7 +184,7 @@ export default {
       const url = new URL(request.url)
 
       if (url.pathname === '/init') {
-        if (!isAuthorized(url)) {
+        if (!isAuthorized(url, env)) {
           return new Response('Unauthorized', { status: 403 })
         }
         await initDatabase(env)
@@ -155,17 +195,17 @@ export default {
       if (url.pathname === WEBHOOK) {
         return handleWebhook(request, env, ctx)
       } else if (url.pathname === '/registerWebhook') {
-        if (!isAuthorized(url)) {
+        if (!isAuthorized(url, env)) {
           return new Response('Unauthorized', { status: 403 })
         }
         return registerWebhook(request, url, env)
       } else if (url.pathname === '/unRegisterWebhook') {
-        if (!isAuthorized(url)) {
+        if (!isAuthorized(url, env)) {
           return new Response('Unauthorized', { status: 403 })
         }
         return unRegisterWebhook(env)
       } else if (url.pathname === '/syncFraudDb') {
-        if (!isAuthorized(url)) {
+        if (!isAuthorized(url, env)) {
           return new Response('Unauthorized', { status: 403 })
         }
         const count = await syncFraudUsers(env)
@@ -264,7 +304,9 @@ async function onMessage (message, env) {
       })
     }
     if(message.chat.id.toString() === ADMIN_UID){
-      if(/^\/syncFraudDb$/.exec(message.text)){
+      const command = classifyAdminCommand(message.text)
+
+      if(command === 'syncFraudDb'){
         return handleSyncFraudDb(env)
       }
 
@@ -274,32 +316,17 @@ async function onMessage (message, env) {
           text:'使用方法，回复转发的消息，并发送回复消息，或者`/block`、`/unblock`、`/checkblock`、`/syncFraudDb` 等指令'
         })
       }
-      if(/^\/block$/.exec(message.text)){
+      if(command === 'block'){
         return handleBlock(message, env)
       }
-      if(/^\/unblock$/.exec(message.text)){
+      if(command === 'unblock'){
         return handleUnBlock(message, env)
       }
-      if(/^\/checkblock$/.exec(message.text)){
+      if(command === 'checkblock'){
         return checkBlock(message, env)
       }
-      let guestChatId
-      try {
-        guestChatId = await getGuestByReply(message, env)
-      } catch (error) {
-        logError('query msg_mappings', error)
-        return sendMessage({
-          chat_id: ADMIN_UID,
-          text: '数据库查询失败，请稍后重试'
-        })
-      }
-
-      if (!guestChatId) {
-        return sendMessage({
-          chat_id: ADMIN_UID,
-          text: '未找到对应的用户消息映射，可能已过期'
-        })
-      }
+      const guestChatId = await resolveGuestByReply(message, env)
+      if (!guestChatId) return
 
       return copyMessage({
         chat_id: guestChatId,
@@ -434,23 +461,8 @@ async function handleNotify(message, env){
 
 async function handleBlock(message, env){
   try {
-    let guestChatId
-    try {
-      guestChatId = await getGuestByReply(message, env)
-    } catch (error) {
-      logError('handleBlock query', error)
-      return sendMessage({
-        chat_id: ADMIN_UID,
-        text: '数据库查询失败'
-      })
-    }
-
-    if(!guestChatId){
-      return sendMessage({
-        chat_id: ADMIN_UID,
-        text:'未找到消息映射'
-      })
-    }
+    const guestChatId = await resolveGuestByReply(message, env)
+    if (!guestChatId) return
 
     if(guestChatId === ADMIN_UID){
       return sendMessage({
@@ -478,23 +490,8 @@ async function handleBlock(message, env){
 
 async function handleUnBlock(message, env){
   try {
-    let guestChatId
-    try {
-      guestChatId = await getGuestByReply(message, env)
-    } catch (error) {
-      logError('handleUnBlock query', error)
-      return sendMessage({
-        chat_id: ADMIN_UID,
-        text: '数据库查询失败'
-      })
-    }
-
-    if(!guestChatId){
-      return sendMessage({
-        chat_id: ADMIN_UID,
-        text:'未找到消息映射'
-      })
-    }
+    const guestChatId = await resolveGuestByReply(message, env)
+    if (!guestChatId) return
 
     await env.DB.prepare(
       'INSERT OR REPLACE INTO blocked_users (chat_id, is_blocked) VALUES (?, 0)'
@@ -515,23 +512,8 @@ async function handleUnBlock(message, env){
 
 async function checkBlock(message, env){
   try {
-    let guestChatId
-    try {
-      guestChatId = await getGuestByReply(message, env)
-    } catch (error) {
-      logError('checkBlock query', error)
-      return sendMessage({
-        chat_id: ADMIN_UID,
-        text: '数据库查询失败'
-      })
-    }
-
-    if(!guestChatId){
-      return sendMessage({
-        chat_id: ADMIN_UID,
-        text:'未找到消息映射'
-      })
-    }
+    const guestChatId = await resolveGuestByReply(message, env)
+    if (!guestChatId) return
 
     let isBlocked
     try {
@@ -606,7 +588,7 @@ async function syncFraudUsers(env) {
       throw new Error(`HTTP ${response.status}`)
     }
     let text = await response.text()
-    let ids = text.split(/\r?\n/).map(v => v.trim()).filter(v => v)
+    let ids = parseFraudIds(text)
 
     // Clean up temp tables left behind by an interrupted sync. Only drop
     // tables old enough that a concurrent sync can't still be writing to them.
@@ -649,7 +631,7 @@ async function syncFraudUsers(env) {
       env.DB.prepare(`ALTER TABLE ${tmpTable} RENAME TO fraud_users`)
     ])
 
-    logError('syncFraudUsers', `synced ${ids.length} entries`)
+    logInfo('syncFraudUsers', `synced ${ids.length} entries`)
     return ids.length
   } catch (error) {
     logError('syncFraudUsers', error)
@@ -687,3 +669,5 @@ async function cleanupOldMappings(env) {
     logError('cleanup msg_mappings', error)
   }
 }
+
+export { parseFraudIds, classifyAdminCommand, isAuthorized }

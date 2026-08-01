@@ -92,6 +92,14 @@ wrangler deploy
 
 部署完成后注册 webhook：访问 `https://你的worker域名/registerWebhook?secret=你的webhook密钥`
 
+## 本地测试
+
+```bash
+npm test
+```
+
+测试使用 Node 内置的 `node:test`，无需安装依赖。
+
 ## 环境变量
 
 在 Cloudflare Dashboard 或 `wrangler.toml` 的 `[vars]` 中配置：
