@@ -33,12 +33,8 @@
 // - Non-text messages now forwarded correctly
 // - Fraud database sync is atomic (temp table swap, never leaves a half-empty table)
 // - msg_mappings retention cleanup keeps the table bounded
+// - Config (token/secret/admin) passed via env instead of module-level globals
 // - Improved code style (naming, parameter handling)
-
-let TOKEN
-let SECRET
-let ADMIN_UID
-let enableNotification
 
 const WEBHOOK = '/endpoint'
 const NOTIFY_INTERVAL = 3600 * 1000;
@@ -67,12 +63,12 @@ async function fetchWithTimeout(url, options, timeout = 10000){
   }
 }
 
-function apiUrl (methodName, params = null) {
+function apiUrl (env, methodName, params = null) {
   let query = ''
   if (params) {
     query = '?' + new URLSearchParams(params).toString()
   }
-  return `https://api.telegram.org/bot${TOKEN}/${methodName}${query}`
+  return `https://api.telegram.org/bot${env.ENV_BOT_TOKEN}/${methodName}${query}`
 }
 
 function isAuthorized (url, env) {
@@ -91,9 +87,9 @@ function parseFraudIds(text) {
   return text.split(/\r?\n/).map(v => v.trim()).filter(v => v)
 }
 
-async function requestTelegram(methodName, body, params = null){
+async function requestTelegram(env, methodName, body, params = null){
   try {
-    const response = await fetchWithTimeout(apiUrl(methodName, params), body)
+    const response = await fetchWithTimeout(apiUrl(env, methodName, params), body)
     const text = await response.text()
     let result = null
     try {
@@ -123,16 +119,16 @@ function makeReqBody(body){
   }
 }
 
-function sendMessage(msg = {}){
-  return requestTelegram('sendMessage', makeReqBody(msg))
+function sendMessage(env, msg = {}){
+  return requestTelegram(env, 'sendMessage', makeReqBody(msg))
 }
 
-function copyMessage(msg = {}){
-  return requestTelegram('copyMessage', makeReqBody(msg))
+function copyMessage(env, msg = {}){
+  return requestTelegram(env, 'copyMessage', makeReqBody(msg))
 }
 
-function telegramForwardMessage(msg){
-  return requestTelegram('forwardMessage', makeReqBody(msg))
+function telegramForwardMessage(env, msg){
+  return requestTelegram(env, 'forwardMessage', makeReqBody(msg))
 }
 
 async function getGuestByReply(message, env) {
@@ -148,16 +144,16 @@ async function resolveGuestByReply(message, env) {
     guestChatId = await getGuestByReply(message, env)
   } catch (error) {
     logError('resolveGuestByReply query', error)
-    await sendMessage({
-      chat_id: ADMIN_UID,
+    await sendMessage(env, {
+      chat_id: env.ENV_ADMIN_UID,
       text: '数据库查询失败，请稍后重试'
     })
     return null
   }
 
   if (!guestChatId) {
-    await sendMessage({
-      chat_id: ADMIN_UID,
+    await sendMessage(env, {
+      chat_id: env.ENV_ADMIN_UID,
       text: '未找到对应的用户消息映射，可能已过期'
     })
     return null
@@ -175,11 +171,6 @@ async function getBlockStatus(chatId, env) {
 
 export default {
   async fetch(request, env, ctx) {
-    TOKEN = env.ENV_BOT_TOKEN
-    SECRET = env.ENV_BOT_SECRET
-    ADMIN_UID = env.ENV_ADMIN_UID
-    enableNotification = env.ENABLE_NOTIFICATION !== 'false'
-
     try {
       const url = new URL(request.url)
 
@@ -257,7 +248,7 @@ async function initDatabase(env) {
 }
 
 async function handleWebhook (request, env, ctx) {
-  if (request.headers.get('X-Telegram-Bot-Api-Secret-Token') !== SECRET) {
+  if (request.headers.get('X-Telegram-Bot-Api-Secret-Token') !== env.ENV_BOT_SECRET) {
     return new Response('Unauthorized', { status: 403 })
   }
 
@@ -298,12 +289,12 @@ async function onMessage (message, env) {
         logError('fetch startMsg', error)
         startMsg = '欢迎使用 NFD 转发机器人'
       }
-      return sendMessage({
+      return sendMessage(env, {
         chat_id:message.chat.id,
         text:startMsg,
       })
     }
-    if(message.chat.id.toString() === ADMIN_UID){
+    if(message.chat.id.toString() === env.ENV_ADMIN_UID){
       const command = classifyAdminCommand(message.text)
 
       if(command === 'syncFraudDb'){
@@ -311,8 +302,8 @@ async function onMessage (message, env) {
       }
 
       if(!message?.reply_to_message?.chat){
-        return sendMessage({
-          chat_id:ADMIN_UID,
+        return sendMessage(env, {
+          chat_id:env.ENV_ADMIN_UID,
           text:'使用方法，回复转发的消息，并发送回复消息，或者`/block`、`/unblock`、`/checkblock`、`/syncFraudDb` 等指令'
         })
       }
@@ -328,7 +319,7 @@ async function onMessage (message, env) {
       const guestChatId = await resolveGuestByReply(message, env)
       if (!guestChatId) return
 
-      return copyMessage({
+      return copyMessage(env, {
         chat_id: guestChatId,
         from_chat_id:message.chat.id,
         message_id:message.message_id,
@@ -338,8 +329,8 @@ async function onMessage (message, env) {
   } catch (error) {
     logError('onMessage', error)
     try {
-      await sendMessage({
-        chat_id: ADMIN_UID,
+      await sendMessage(env, {
+        chat_id: env.ENV_ADMIN_UID,
         text: `处理消息时出错: ${error?.message}`
       })
     } catch (_) {}
@@ -357,7 +348,7 @@ async function handleGuestMessage(message, env){
     }
 
     if(isBlocked){
-      return sendMessage({
+      return sendMessage(env, {
         chat_id: chatId,
         text:'You are blocked'
       })
@@ -372,8 +363,8 @@ async function handleGuestMessage(message, env){
 
     if (isFraudUser) {
       try {
-        await sendMessage({
-          chat_id: ADMIN_UID,
+        await sendMessage(env, {
+          chat_id: env.ENV_ADMIN_UID,
           text: `⚠️ 诈骗警告：UID ${chatId} 在欺诈数据库中，消息已转发，请谨慎交易`
         })
       } catch (error) {
@@ -383,14 +374,14 @@ async function handleGuestMessage(message, env){
 
     let forwardReq
     try {
-      forwardReq = await telegramForwardMessage({
-        chat_id:ADMIN_UID,
+      forwardReq = await telegramForwardMessage(env, {
+        chat_id:env.ENV_ADMIN_UID,
         from_chat_id:message.chat.id,
         message_id:message.message_id
       })
     } catch (error) {
       logError('forward message', error)
-      return sendMessage({
+      return sendMessage(env, {
         chat_id: chatId,
         text: '消息转发失败，请稍后重试'
       })
@@ -417,7 +408,7 @@ async function handleGuestMessage(message, env){
 async function handleNotify(message, env){
   try {
     let chatId = message.chat.id;
-    if(enableNotification){
+    if(env.ENABLE_NOTIFICATION !== 'false'){
       let row
       try {
         row = await env.DB.prepare(
@@ -445,8 +436,8 @@ async function handleNotify(message, env){
         }
 
         try {
-          await sendMessage({
-            chat_id: ADMIN_UID,
+          await sendMessage(env, {
+            chat_id: env.ENV_ADMIN_UID,
             text: notificationText
           })
         } catch (error) {
@@ -464,9 +455,9 @@ async function handleBlock(message, env){
     const guestChatId = await resolveGuestByReply(message, env)
     if (!guestChatId) return
 
-    if(guestChatId === ADMIN_UID){
-      return sendMessage({
-        chat_id: ADMIN_UID,
+    if(guestChatId === env.ENV_ADMIN_UID){
+      return sendMessage(env, {
+        chat_id: env.ENV_ADMIN_UID,
         text:'不能屏蔽自己'
       })
     }
@@ -475,14 +466,14 @@ async function handleBlock(message, env){
       'INSERT OR REPLACE INTO blocked_users (chat_id, is_blocked) VALUES (?, 1)'
     ).bind(guestChatId).run()
 
-    return sendMessage({
-      chat_id: ADMIN_UID,
+    return sendMessage(env, {
+      chat_id: env.ENV_ADMIN_UID,
       text: `UID:${guestChatId}屏蔽成功`,
     })
   } catch (error) {
     logError('handleBlock', error)
-    return sendMessage({
-      chat_id: ADMIN_UID,
+    return sendMessage(env, {
+      chat_id: env.ENV_ADMIN_UID,
       text: '屏蔽操作失败'
     })
   }
@@ -497,14 +488,14 @@ async function handleUnBlock(message, env){
       'INSERT OR REPLACE INTO blocked_users (chat_id, is_blocked) VALUES (?, 0)'
     ).bind(guestChatId).run()
 
-    return sendMessage({
-      chat_id: ADMIN_UID,
+    return sendMessage(env, {
+      chat_id: env.ENV_ADMIN_UID,
       text:`UID:${guestChatId}解除屏蔽成功`,
     })
   } catch (error) {
     logError('handleUnBlock', error)
-    return sendMessage({
-      chat_id: ADMIN_UID,
+    return sendMessage(env, {
+      chat_id: env.ENV_ADMIN_UID,
       text: '解除屏蔽操作失败'
     })
   }
@@ -520,20 +511,20 @@ async function checkBlock(message, env){
       isBlocked = await getBlockStatus(guestChatId, env)
     } catch (error) {
       logError('checkBlock query blocked', error)
-      return sendMessage({
-        chat_id: ADMIN_UID,
+      return sendMessage(env, {
+        chat_id: env.ENV_ADMIN_UID,
         text: '查询屏蔽状态失败'
       })
     }
 
-    return sendMessage({
-      chat_id: ADMIN_UID,
+    return sendMessage(env, {
+      chat_id: env.ENV_ADMIN_UID,
       text: `UID:${guestChatId}` + (isBlocked ? '被屏蔽' : '没有被屏蔽')
     })
   } catch (error) {
     logError('checkBlock', error)
-    return sendMessage({
-      chat_id: ADMIN_UID,
+    return sendMessage(env, {
+      chat_id: env.ENV_ADMIN_UID,
       text: '查询操作失败'
     })
   }
@@ -542,7 +533,7 @@ async function checkBlock(message, env){
 async function registerWebhook (request, requestUrl, env) {
   try {
     const webhookUrl = `${requestUrl.protocol}//${requestUrl.hostname}${WEBHOOK}`
-    const response = await fetchWithTimeout(apiUrl('setWebhook', { url: webhookUrl, secret_token: SECRET }))
+    const response = await fetchWithTimeout(apiUrl(env, 'setWebhook', { url: webhookUrl, secret_token: env.ENV_BOT_SECRET }))
     if (!response.ok) {
       return new Response(`HTTP ${response.status}: ${await response.text()}`, { status: 500 })
     }
@@ -556,7 +547,7 @@ async function registerWebhook (request, requestUrl, env) {
 
 async function unRegisterWebhook (env) {
   try {
-    const response = await fetchWithTimeout(apiUrl('setWebhook', { url: '' }))
+    const response = await fetchWithTimeout(apiUrl(env, 'setWebhook', { url: '' }))
     if (!response.ok) {
       return new Response(`HTTP ${response.status}: ${await response.text()}`, { status: 500 })
     }
@@ -641,20 +632,20 @@ async function syncFraudUsers(env) {
 
 async function handleSyncFraudDb(env) {
   try {
-    await sendMessage({
-      chat_id: ADMIN_UID,
+    await sendMessage(env, {
+      chat_id: env.ENV_ADMIN_UID,
       text: '正在同步诈骗数据库，请稍候...'
     })
     let count = await syncFraudUsers(env)
     await cleanupOldMappings(env)
-    return sendMessage({
-      chat_id: ADMIN_UID,
+    return sendMessage(env, {
+      chat_id: env.ENV_ADMIN_UID,
       text: `诈骗数据库同步完成，共 ${count} 条记录`
     })
   } catch (error) {
     logError('handleSyncFraudDb', error)
-    return sendMessage({
-      chat_id: ADMIN_UID,
+    return sendMessage(env, {
+      chat_id: env.ENV_ADMIN_UID,
       text: `诈骗数据库同步失败: ${error?.message}`
     })
   }
