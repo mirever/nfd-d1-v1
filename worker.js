@@ -31,6 +31,8 @@
 // - Changed enable_notification to configurable env variable
 // - Secured management endpoints (/init, webhook registration, fraud sync) with webhook secret
 // - Non-text messages now forwarded correctly
+// - Fraud database sync is atomic (temp table swap, never leaves a half-empty table)
+// - msg_mappings retention cleanup keeps the table bounded
 // - Improved code style (naming, parameter handling)
 
 let TOKEN
@@ -40,6 +42,9 @@ let enableNotification
 
 const WEBHOOK = '/endpoint'
 const NOTIFY_INTERVAL = 3600 * 1000;
+const MAPPING_RETENTION = 1000
+const MAPPING_CLEANUP_PROBABILITY = 0.01
+const STALE_TMP_TABLE_AGE = 10 * 60 * 1000
 const fraudDb = 'https://raw.githubusercontent.com/LloydAsp/nfd/main/data/fraud.db';
 const notificationUrl = 'https://raw.githubusercontent.com/LloydAsp/nfd/main/data/notification.txt'
 const startMsgUrl = 'https://raw.githubusercontent.com/LloydAsp/nfd/main/data/startMessage.md';
@@ -143,6 +148,7 @@ export default {
           return new Response('Unauthorized', { status: 403 })
         }
         await initDatabase(env)
+        await cleanupOldMappings(env)
         return new Response('Database initialized')
       }
 
@@ -163,6 +169,7 @@ export default {
           return new Response('Unauthorized', { status: 403 })
         }
         const count = await syncFraudUsers(env)
+        await cleanupOldMappings(env)
         return new Response(`Fraud database synced: ${count} entries`, { status: 200 })
       }
 
@@ -369,6 +376,9 @@ async function handleGuestMessage(message, env){
         ).bind(forwardReq.result.message_id, chatId.toString()).run()
       } catch (error) {
         logError('save msg_mapping', error)
+      }
+      if (Math.random() < MAPPING_CLEANUP_PROBABILITY) {
+        await cleanupOldMappings(env)
       }
     }
     await handleNotify(message, env)
@@ -598,16 +608,46 @@ async function syncFraudUsers(env) {
     let text = await response.text()
     let ids = text.split(/\r?\n/).map(v => v.trim()).filter(v => v)
 
-    let statements = [
-      env.DB.prepare('DELETE FROM fraud_users'),
-      ...ids.map(id => env.DB.prepare(
-        'INSERT OR IGNORE INTO fraud_users (chat_id) VALUES (?)'
-      ).bind(id))
-    ]
-
-    for (let i = 0; i < statements.length; i += 100) {
-      await env.DB.batch(statements.slice(i, i + 100))
+    // Clean up temp tables left behind by an interrupted sync. Only drop
+    // tables old enough that a concurrent sync can't still be writing to them.
+    try {
+      const leftover = await env.DB.prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name GLOB 'fraud_users_tmp_*'"
+      ).all()
+      const now = Date.now()
+      const stale = leftover.results
+        .map(row => row.name)
+        .filter(name => {
+          const match = /^fraud_users_tmp_(\d+)$/.exec(name)
+          return match && now - Number(match[1]) > STALE_TMP_TABLE_AGE
+        })
+      if (stale.length > 0) {
+        await env.DB.batch(stale.map(name => env.DB.prepare(`DROP TABLE ${name}`)))
+      }
+    } catch (error) {
+      logError('cleanup stale fraud temp tables', error)
     }
+
+    // Build the new table first, then swap it in atomically. The live
+    // fraud_users table is never deleted until the replacement is complete.
+    const tmpTable = `fraud_users_tmp_${Date.now()}`
+    await env.DB.prepare(
+      `CREATE TABLE ${tmpTable} (chat_id TEXT PRIMARY KEY)`
+    ).run()
+
+    const insertStmt = env.DB.prepare(
+      `INSERT OR IGNORE INTO ${tmpTable} (chat_id) VALUES (?)`
+    )
+
+    for (let i = 0; i < ids.length; i += 100) {
+      await env.DB.batch(ids.slice(i, i + 100).map(id => insertStmt.bind(id)))
+    }
+
+    // Single batch = single transaction, so the swap is atomic.
+    await env.DB.batch([
+      env.DB.prepare('DROP TABLE fraud_users'),
+      env.DB.prepare(`ALTER TABLE ${tmpTable} RENAME TO fraud_users`)
+    ])
 
     logError('syncFraudUsers', `synced ${ids.length} entries`)
     return ids.length
@@ -624,6 +664,7 @@ async function handleSyncFraudDb(env) {
       text: '正在同步诈骗数据库，请稍候...'
     })
     let count = await syncFraudUsers(env)
+    await cleanupOldMappings(env)
     return sendMessage({
       chat_id: ADMIN_UID,
       text: `诈骗数据库同步完成，共 ${count} 条记录`
@@ -634,5 +675,15 @@ async function handleSyncFraudDb(env) {
       chat_id: ADMIN_UID,
       text: `诈骗数据库同步失败: ${error?.message}`
     })
+  }
+}
+
+async function cleanupOldMappings(env) {
+  try {
+    await env.DB.prepare(
+      'DELETE FROM msg_mappings WHERE forwarded_msg_id < (SELECT MAX(forwarded_msg_id) - ? FROM msg_mappings)'
+    ).bind(MAPPING_RETENTION).run()
+  } catch (error) {
+    logError('cleanup msg_mappings', error)
   }
 }
