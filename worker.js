@@ -73,11 +73,19 @@ function isAuthorized (url) {
 async function requestTelegram(methodName, body, params = null){
   try {
     const response = await fetchWithTimeout(apiUrl(methodName, params), body)
-    if (!response.ok) {
-      const text = await response.text()
-      throw new Error(`Telegram API ${methodName} returned ${response.status}: ${text}`)
+    const text = await response.text()
+    let result = null
+    try {
+      result = JSON.parse(text)
+    } catch (_) {}
+
+    // Telegram reports business errors (blocked bot, missing message, rate
+    // limit, etc.) as HTTP 200 with {"ok": false, "description": ...}
+    if (!response.ok || !result?.ok) {
+      const detail = result?.description ? `: ${result.description}` : ''
+      throw new Error(`Telegram API ${methodName} failed (HTTP ${response.status})${detail}`)
     }
-    return await response.json()
+    return result
   } catch (error) {
     logError(`requestTelegram(${methodName})`, error)
     throw error

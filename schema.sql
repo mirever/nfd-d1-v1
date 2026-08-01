@@ -31,3 +31,7 @@ CREATE TABLE IF NOT EXISTS notify_timestamps (
   chat_id TEXT PRIMARY KEY,
   last_time INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS fraud_users (
+  chat_id TEXT PRIMARY KEY
+);
