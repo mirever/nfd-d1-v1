@@ -55,12 +55,12 @@
 - 页面显示 `Database initialized` 即成功
 
 **第 7 步：注册 webhook**
-- 在浏览器打开 `https://你的worker域名/registerWebhook`
+- 在浏览器打开 `https://你的worker域名/registerWebhook?secret=你的webhook密钥`
 - 页面显示 `Ok` 即成功
 
 **第 8 步：同步诈骗数据库**
 - 在和 bot 的聊天中发送 `/syncFraudDb`
-- 或者浏览器访问 `https://你的worker域名/syncFraudDb`
+- 或者浏览器访问 `https://你的worker域名/syncFraudDb?secret=你的webhook密钥`
 - bot 回复"诈骗数据库同步完成"即成功
 
 **第 9 步：使用**
@@ -90,7 +90,7 @@ wrangler d1 execute nfd-d1-v1 --file=schema.sql
 wrangler deploy
 ```
 
-部署完成后注册 webhook：访问 `https://你的worker域名/registerWebhook`
+部署完成后注册 webhook：访问 `https://你的worker域名/registerWebhook?secret=你的webhook密钥`
 
 ## 环境变量
 
@@ -118,10 +118,10 @@ wrangler deploy
 | 端点 | 说明 |
 |------|------|
 | `POST /endpoint` | Telegram Webhook |
-| `GET /registerWebhook` | 注册 Webhook |
-| `GET /unRegisterWebhook` | 注销 Webhook |
+| `GET /registerWebhook?secret=xxx` | 注册 Webhook |
+| `GET /unRegisterWebhook?secret=xxx` | 注销 Webhook |
 | `GET /init?secret=xxx` | 初始化数据库表 |
-| `GET /syncFraudDb` | 手动同步诈骗数据库 |
+| `GET /syncFraudDb?secret=xxx` | 手动同步诈骗数据库 |
 
 ## 许可证
 

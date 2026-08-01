@@ -29,7 +29,7 @@
 // - Fraud database cached to D1 instead of fetching on every message
 // - Added /syncFraudDb command for manual fraud DB updates
 // - Changed enable_notification to configurable env variable
-// - Secured /init endpoint with webhook secret
+// - Secured management endpoints (/init, webhook registration, fraud sync) with webhook secret
 // - Non-text messages now forwarded correctly
 // - Improved code style (naming, parameter handling)
 
@@ -64,6 +64,10 @@ function apiUrl (methodName, params = null) {
     query = '?' + new URLSearchParams(params).toString()
   }
   return `https://api.telegram.org/bot${TOKEN}/${methodName}${query}`
+}
+
+function isAuthorized (url) {
+  return url.searchParams.get('secret') === SECRET
 }
 
 async function requestTelegram(methodName, body, params = null){
@@ -127,7 +131,7 @@ export default {
       const url = new URL(request.url)
 
       if (url.pathname === '/init') {
-        if (url.searchParams.get('secret') !== SECRET) {
+        if (!isAuthorized(url)) {
           return new Response('Unauthorized', { status: 403 })
         }
         await initDatabase(env)
@@ -137,10 +141,19 @@ export default {
       if (url.pathname === WEBHOOK) {
         return handleWebhook(request, env, ctx)
       } else if (url.pathname === '/registerWebhook') {
+        if (!isAuthorized(url)) {
+          return new Response('Unauthorized', { status: 403 })
+        }
         return registerWebhook(request, url, env)
       } else if (url.pathname === '/unRegisterWebhook') {
+        if (!isAuthorized(url)) {
+          return new Response('Unauthorized', { status: 403 })
+        }
         return unRegisterWebhook(env)
       } else if (url.pathname === '/syncFraudDb') {
+        if (!isAuthorized(url)) {
+          return new Response('Unauthorized', { status: 403 })
+        }
         const count = await syncFraudUsers(env)
         return new Response(`Fraud database synced: ${count} entries`, { status: 200 })
       }
